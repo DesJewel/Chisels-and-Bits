@@ -1,5 +1,6 @@
 package mod.chiselsandbits.network.packets;
 
+import mod.chiselsandbits.api.item.chisel.IChiselingItem;
 import mod.chiselsandbits.api.item.withmode.IWithModeItem;
 import mod.chiselsandbits.utils.ItemStackUtils;
 import net.minecraft.server.level.ServerPlayer;
@@ -37,7 +38,10 @@ public final class HeldToolModeChangedPacket extends ModPacket
     public void server(final ServerPlayer playerEntity)
     {
         final ItemStack stack = ItemStackUtils.getModeItemStackFromPlayer(playerEntity);
-        if (stack.getItem() instanceof IWithModeItem) {
+        if (stack.getItem() instanceof IChiselingItem chiselingItem) {
+            chiselingItem.setMode(playerEntity, stack, modeIndex);
+        }
+        else if (stack.getItem() instanceof IWithModeItem) {
             final IWithModeItem<?> modeItem = (IWithModeItem<?>) stack.getItem();
             modeItem.setMode(stack, modeIndex);
         }

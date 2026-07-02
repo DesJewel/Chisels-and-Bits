@@ -340,18 +340,26 @@ public class ChiseledBlock extends Block implements IMultiStateBlock, SimpleWate
     @Override
     public VoxelShape getShape(@NotNull final BlockState state, @NotNull final BlockGetter worldIn, @NotNull final BlockPos pos, @NotNull final CollisionContext context)
     {
-        return getBlockEntity(worldIn, pos)
+        final VoxelShape shape = getBlockEntity(worldIn, pos)
                                    .map(multiStateBlockEntity -> IVoxelShapeManager.getInstance().get(multiStateBlockEntity))
                                    .orElse(Shapes.empty());
+
+        // An empty shape here means the block entity has already been emptied out by a network update
+        // while the corresponding block-to-air transition has not yet arrived. Vanilla callers (e.g.
+        // ParticleEngine#crack) call VoxelShape#bounds() on this result without checking isEmpty() first,
+        // which throws. Fall back to a full block shape for this transient window instead of crashing.
+        return shape.isEmpty() ? Shapes.block() : shape;
     }
 
     @NotNull
     @Override
     public VoxelShape getCollisionShape(@NotNull final BlockState state, @NotNull final BlockGetter worldIn, @NotNull final BlockPos pos, @NotNull final CollisionContext context)
     {
-        return getBlockEntity(worldIn, pos)
+        final VoxelShape shape = getBlockEntity(worldIn, pos)
                                    .map(multiStateBlockEntity -> IVoxelShapeManager.getInstance().get(multiStateBlockEntity, CollisionType.COLLIDEABLE_ONLY))
                                    .orElse(Shapes.empty());
+
+        return shape.isEmpty() ? Shapes.block() : shape;
     }
 
     @NotNull

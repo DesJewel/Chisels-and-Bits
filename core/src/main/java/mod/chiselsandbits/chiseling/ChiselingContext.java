@@ -273,7 +273,6 @@ public class ChiselingContext implements IChiselingContext
         }
 
         final AtomicBoolean broken = new AtomicBoolean(false);
-        final int currentDamage = causingItemStack.getDamageValue();
         this.causingItemStack.hurtAndBreak(damage, playerEntity, playerEntity -> {
             broken.set(true);
 
@@ -286,8 +285,10 @@ public class ChiselingContext implements IChiselingContext
         onDamaged.run();
         if (broken.get()) {
             causingItemStack = ItemStack.EMPTY;
+            return 0;
         }
-        return Math.min(damage, currentDamage);
+
+        return damage;
     }
 
     @Override

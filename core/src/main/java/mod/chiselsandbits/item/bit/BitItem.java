@@ -26,6 +26,7 @@ import mod.chiselsandbits.api.util.constants.NbtConstants;
 import mod.chiselsandbits.api.variant.state.IStateVariantManager;
 import mod.chiselsandbits.blockinformation.BlockInformation;
 import mod.chiselsandbits.chiseling.ChiselingManager;
+import mod.chiselsandbits.chiseling.GlobalToolModeManager;
 import mod.chiselsandbits.client.render.ModRenderTypes;
 import mod.chiselsandbits.registrars.ModCreativeTabs;
 import mod.chiselsandbits.utils.ItemStackUtils;
@@ -34,9 +35,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.flag.FeatureFlagSet;
@@ -48,8 +47,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.phys.Vec3;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -64,8 +61,6 @@ import java.util.stream.Collectors;
 
 public class BitItem extends Item implements IChiselingItem, IBitItem, IDocumentableItem
 {
-    private static final Logger LOGGER = LogManager.getLogger();
-
     private final List<ItemStack> availableBitStacks = Lists.newLinkedList();
 
     private final ThreadLocal<Boolean> threadLocalBitMergeOperationInProgress = ThreadLocal.withInitial(() -> false);
@@ -125,21 +120,17 @@ public class BitItem extends Item implements IChiselingItem, IBitItem, IDocument
     @Override
     public IChiselMode getMode(final ItemStack stack)
     {
-        final CompoundTag stackNbt = stack.getOrCreateTag();
-        if (stackNbt.contains(NbtConstants.CHISEL_MODE))
-        {
-            final String chiselModeName = stackNbt.getString(NbtConstants.CHISEL_MODE);
-            try {
-                final Optional<IChiselMode> registryMode = IChiselMode.getRegistry().get(new ResourceLocation(chiselModeName));
-                return registryMode.orElseGet(IChiselMode::getDefaultMode);
-            }
-            catch (IllegalArgumentException illegalArgumentException) {
-                LOGGER.error(String.format("An ItemStack got loaded with a name that is not a valid chisel mode: %s", chiselModeName));
-                this.setMode(stack, IChiselMode.getDefaultMode());
-            }
-        }
+        return DistExecutor.runForDist(
+          () -> () -> Minecraft.getInstance().player == null ? IChiselMode.getDefaultMode() : getMode(Minecraft.getInstance().player, stack),
+          () -> IChiselMode::getDefaultMode
+        );
+    }
 
-        return IChiselMode.getDefaultMode();
+    @NotNull
+    @Override
+    public IChiselMode getMode(final Player player, final ItemStack stack)
+    {
+        return GlobalToolModeManager.getInstance().getBitMode(player);
     }
 
     @NotNull
@@ -185,10 +176,21 @@ public class BitItem extends Item implements IChiselingItem, IBitItem, IDocument
     @Override
     public void setMode(final ItemStack stack, final IChiselMode mode)
     {
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
+            if (Minecraft.getInstance().player != null)
+            {
+                setMode(Minecraft.getInstance().player, stack, mode);
+            }
+        });
+    }
+
+    @Override
+    public void setMode(final Player player, final ItemStack stack, final IChiselMode mode)
+    {
         if (mode == null)
             return;
 
-        stack.getOrCreateTag().putString(NbtConstants.CHISEL_MODE, Objects.requireNonNull(mode.getRegistryName()).toString());
+        GlobalToolModeManager.getInstance().setBitMode(player, mode);
     }
 
     @NotNull
@@ -241,7 +243,7 @@ public class BitItem extends Item implements IChiselingItem, IBitItem, IDocument
             return currentState;
 
         final IChiselingItem chiselingItem = (IChiselingItem) itemStack.getItem();
-        final IChiselMode chiselMode = chiselingItem.getMode(itemStack);
+        final IChiselMode chiselMode = chiselingItem.getMode(playerEntity, itemStack);
 
         final IChiselingContext context = IChiselingManager.getInstance().getOrCreateContext(
           playerEntity,
@@ -299,7 +301,7 @@ public class BitItem extends Item implements IChiselingItem, IBitItem, IDocument
         }
 
         final IChiselingItem chiselingItem = (IChiselingItem) itemStack.getItem();
-        final IChiselMode chiselMode = chiselingItem.getMode(itemStack);
+        final IChiselMode chiselMode = chiselingItem.getMode(playerEntity, itemStack);
 
         final Optional<IChiselingContext> potentiallyExistingContext =
           IChiselingManager.getInstance().get(playerEntity, chiselMode, ChiselingOperation.CHISELING);
@@ -388,7 +390,7 @@ public class BitItem extends Item implements IChiselingItem, IBitItem, IDocument
             return;
 
         final IChiselingItem chiselingItem = (IChiselingItem) itemStack.getItem();
-        final IChiselMode chiselMode = chiselingItem.getMode(itemStack);
+        final IChiselMode chiselMode = chiselingItem.getMode(playerEntity, itemStack);
 
         final Optional<IChiselingContext> potentiallyExistingContext =
           IChiselingManager.getInstance().get(playerEntity, chiselMode);
